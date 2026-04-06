@@ -1,0 +1,15 @@
+.venv/
+.cache/
+.localhome/
+logs/
+.aider*
+.agenty-local/
+.patchforge/
+build/
+dist/
+src/*.egg-info/
+__pycache__/
+*.pyc
+ai-coder/
+hello.txt
+smoke-basic.txt
