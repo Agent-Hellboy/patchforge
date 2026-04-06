@@ -12,6 +12,7 @@ from patchforge.cli import build_aider_command
 from patchforge.cli import build_model_download_command
 from patchforge.cli import choose_llama_cpp_installer
 from patchforge.cli import pick_model
+from patchforge.cli import resolve_model_specs
 from patchforge.cli import runtime_paths
 
 
@@ -26,7 +27,7 @@ class CliTests(unittest.TestCase):
     def test_pick_model_uses_default_candidates(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache_dir = Path(tmp)
-            default = cache_dir / "second-state_gemma-2-9b-it-GGUF_gemma-2-9b-it-Q4_K_M.gguf"
+            default = cache_dir / "ggml-org_gemma-4-E4B-it-GGUF_gemma-4-e4b-it-Q4_K_M.gguf"
             default.write_text("x")
             self.assertEqual(pick_model(None, cache_dir), default)
 
@@ -63,13 +64,17 @@ class CliTests(unittest.TestCase):
             [
                 "/opt/homebrew/bin/llama-cli",
                 "--hf-repo",
-                "second-state/gemma-2-9b-it-GGUF:Q4_K_M",
+                "ggml-org/gemma-4-E4B-it-GGUF:Q4_K_M",
                 "--prompt",
                 "",
                 "--n-predict",
                 "0",
             ],
         )
+
+    def test_resolve_model_specs_deduplicates_and_preserves_default_order(self) -> None:
+        specs = resolve_model_specs(["gemma-2-9b-it", "gemma-4-e4b-it"], include_defaults=True)
+        self.assertEqual([spec.name for spec in specs], ["gemma-4-e4b-it", "gemma-2-9b-it"])
 
 
 if __name__ == "__main__":

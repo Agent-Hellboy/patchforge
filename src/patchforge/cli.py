@@ -30,6 +30,7 @@ class ToolError(RuntimeError):
 
 @dataclass(frozen=True)
 class ModelSpec:
+    name: str
     repo: str
     quant: str
     cached_filename: str
@@ -44,16 +45,19 @@ class ModelSpec:
 
 DEFAULT_MODEL_SPECS = (
     ModelSpec(
-        repo="second-state/gemma-2-9b-it-GGUF",
-        quant="Q4_K_M",
-        cached_filename="second-state_gemma-2-9b-it-GGUF_gemma-2-9b-it-Q4_K_M.gguf",
-    ),
-    ModelSpec(
+        name="gemma-4-e4b-it",
         repo="ggml-org/gemma-4-E4B-it-GGUF",
         quant="Q4_K_M",
         cached_filename="ggml-org_gemma-4-E4B-it-GGUF_gemma-4-e4b-it-Q4_K_M.gguf",
     ),
+    ModelSpec(
+        name="gemma-2-9b-it",
+        repo="second-state/gemma-2-9b-it-GGUF",
+        quant="Q4_K_M",
+        cached_filename="second-state_gemma-2-9b-it-GGUF_gemma-2-9b-it-Q4_K_M.gguf",
+    ),
 )
+MODEL_SPECS_BY_NAME = {spec.name: spec for spec in DEFAULT_MODEL_SPECS}
 
 
 @dataclass
@@ -117,6 +121,27 @@ def default_model_paths(cache_dir: Path) -> list[Path]:
     return [spec.cached_path(cache_dir) for spec in DEFAULT_MODEL_SPECS]
 
 
+def resolve_model_specs(model_names: list[str] | None, include_defaults: bool) -> list[ModelSpec]:
+    ordered_names: list[str] = []
+    if include_defaults:
+        ordered_names.extend(spec.name for spec in DEFAULT_MODEL_SPECS)
+    ordered_names.extend(model_names or [])
+
+    resolved: list[ModelSpec] = []
+    seen: set[str] = set()
+    for model_name in ordered_names:
+        if model_name in seen:
+            continue
+        try:
+            spec = MODEL_SPECS_BY_NAME[model_name]
+        except KeyError as exc:
+            supported = ", ".join(MODEL_SPECS_BY_NAME)
+            raise ToolError(f"Unknown model `{model_name}`. Supported values: {supported}") from exc
+        resolved.append(spec)
+        seen.add(model_name)
+    return resolved
+
+
 def pick_model(model_path: str | None, cache_dir: Path) -> Path:
     if model_path:
         candidate = Path(model_path).expanduser()
@@ -130,7 +155,7 @@ def pick_model(model_path: str | None, cache_dir: Path) -> Path:
 
     raise ToolError(
         "No cached GGUF model was found. "
-        "Set --model-path or LLAMA_MODEL_PATH to an absolute model path."
+        "Run `patchforge install --download-default-models` or set --model-path / LLAMA_MODEL_PATH."
     )
 
 
@@ -391,21 +416,23 @@ def cmd_install(args: argparse.Namespace) -> int:
     installer = choose_llama_cpp_installer(args.installer)
     ensure_llama_cpp_installed(installer, args.force_install, project_root)
 
-    if args.skip_models:
-        print("Skipped model downloads.")
+    selected_specs = resolve_model_specs(args.download_model, args.download_default_models)
+    if not selected_specs:
+        print("Installed llama.cpp.")
+        print("No models downloaded. Use --download-default-models or --download-model to cache local GGUF models.")
         return 0
 
     llama_cli = check_llama_cli_available()
     cache_dir = default_llama_cache_dir()
     cache_dir.mkdir(parents=True, exist_ok=True)
 
-    for spec in DEFAULT_MODEL_SPECS:
+    for spec in selected_specs:
         cached_path = spec.cached_path(cache_dir)
         if cached_path.is_file():
-            print(f"Model already cached: {cached_path.name}")
+            print(f"Model already cached: {spec.name} ({cached_path.name})")
             continue
 
-        print(f"Downloading {spec.hf_repo} ...")
+        print(f"Downloading {spec.name} from {spec.hf_repo} ...")
         env = os.environ.copy()
         env.pop("LLAMA_OFFLINE", None)
         run_checked(build_model_download_command(llama_cli, spec), cwd=project_root, env=env)
@@ -700,7 +727,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     install_parser = subparsers.add_parser(
         "install",
-        help="Install llama.cpp using the preferred local strategy and prefetch the default GGUF models.",
+        help="Install llama.cpp using the preferred local strategy. GGUF model downloads are opt-in.",
     )
     install_parser.add_argument("--project-root", default=None, help="Project directory to operate in.")
     install_parser.add_argument(
@@ -715,9 +742,16 @@ def build_parser() -> argparse.ArgumentParser:
         help="Run the selected llama.cpp installer even if it looks already installed.",
     )
     install_parser.add_argument(
-        "--skip-models",
+        "--download-default-models",
         action="store_true",
-        help="Install llama.cpp but do not prefetch the default GGUF models.",
+        help="Download the curated local GGUF defaults after installing llama.cpp.",
+    )
+    install_parser.add_argument(
+        "--download-model",
+        action="append",
+        choices=tuple(MODEL_SPECS_BY_NAME),
+        default=[],
+        help="Download a specific local GGUF model. Repeat to fetch more than one.",
     )
 
     aider_parser = subparsers.add_parser("aider", help="Run Aider against the local endpoint.")

@@ -32,14 +32,38 @@ patchforge install
 
 - Reuse an existing `llama-server` if one is already on `PATH`
 - Otherwise, on macOS, prefer Homebrew and install `llama.cpp`
-- After that, prefetch the default GGUF models into the llama.cpp cache
+
+Patchforge does not bundle or publish model weights. Model downloads stay local to the machine and are opt-in:
+
+```bash
+patchforge install --download-model gemma-4-e4b-it
+patchforge install --download-model gemma-2-9b-it
+patchforge install --download-default-models
+```
+
+Supported built-in local model names:
+
+- `gemma-4-e4b-it`
+- `gemma-2-9b-it`
 
 ## Usage
 
-Start the local model server in the background:
+Start with the preferred built-in cached model:
 
 ```bash
 patchforge start
+```
+
+Or point Patchforge at an explicit local GGUF file:
+
+```bash
+patchforge start --model-path /absolute/path/to/model.gguf
+```
+
+If no cached model exists yet, install one locally first:
+
+```bash
+patchforge install --download-model gemma-4-e4b-it
 ```
 
 Check whether it is up:
@@ -77,7 +101,7 @@ patchforge models
 - Host: `127.0.0.1`
 - Port: `8091`
 - Model alias: `gemma-local`
-- Default models: cached `gemma-2-9b-it` first, then cached `gemma-4-E4B-it`
+- Default models: cached `gemma-4-E4B-it` first, then cached `gemma-2-9b-it`
 - Runtime state: `.patchforge/` under the current project
 
 ## Overrides

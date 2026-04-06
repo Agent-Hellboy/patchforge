@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from patchforge.cli import DEFAULT_MODEL_SPECS
 from patchforge.cli import ensure_runtime_dirs
 from patchforge.cli import main
 from patchforge.cli import runtime_paths
@@ -20,14 +21,49 @@ class CliCommandSmokeTests(unittest.TestCase):
             stdout = io.StringIO()
             with mock.patch("patchforge.cli.choose_llama_cpp_installer", return_value="existing") as choose_mock:
                 with mock.patch("patchforge.cli.ensure_llama_cpp_installed") as ensure_mock:
-                    with contextlib.redirect_stdout(stdout):
-                        exit_code = main(["install", "--project-root", str(root), "--skip-models"])
+                    with mock.patch("patchforge.cli.check_llama_cli_available") as llama_cli_mock:
+                        with contextlib.redirect_stdout(stdout):
+                            exit_code = main(["install", "--project-root", str(root)])
 
             self.assertEqual(exit_code, 0)
             choose_mock.assert_called_once_with("auto")
             ensure_mock.assert_called_once_with("existing", False, root)
+            llama_cli_mock.assert_not_called()
             self.assertTrue((root / ".patchforge").is_dir())
-            self.assertIn("Skipped model downloads.", stdout.getvalue())
+            self.assertIn("No models downloaded.", stdout.getvalue())
+
+    def test_install_command_downloads_selected_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            cache_dir = root / "llama-cache"
+            stdout = io.StringIO()
+
+            def fake_run_checked(command: list[str], *, cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
+                self.assertEqual(cwd, root)
+                self.assertEqual(command[:2], ["/usr/bin/llama-cli", "--hf-repo"])
+                self.assertEqual(command[2], "ggml-org/gemma-4-E4B-it-GGUF:Q4_K_M")
+                DEFAULT_MODEL_SPECS[0].cached_path(cache_dir).write_text("model")
+
+            with mock.patch("patchforge.cli.choose_llama_cpp_installer", return_value="existing"):
+                with mock.patch("patchforge.cli.ensure_llama_cpp_installed"):
+                    with mock.patch("patchforge.cli.check_llama_cli_available", return_value="/usr/bin/llama-cli"):
+                        with mock.patch("patchforge.cli.default_llama_cache_dir", return_value=cache_dir):
+                            with mock.patch("patchforge.cli.run_checked", side_effect=fake_run_checked) as run_mock:
+                                with contextlib.redirect_stdout(stdout):
+                                    exit_code = main(
+                                        [
+                                            "install",
+                                            "--project-root",
+                                            str(root),
+                                            "--download-model",
+                                            "gemma-4-e4b-it",
+                                        ]
+                                    )
+
+            self.assertEqual(exit_code, 0)
+            run_mock.assert_called_once()
+            self.assertTrue(DEFAULT_MODEL_SPECS[0].cached_path(cache_dir).is_file())
+            self.assertIn("Downloading gemma-4-e4b-it", stdout.getvalue())
 
     def test_start_command_smoke(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
